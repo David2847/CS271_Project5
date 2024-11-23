@@ -27,14 +27,17 @@ MAX_TEMP = 80
 	dailyHighsTitle		BYTE	"High temperature reading for each day:",13,10,0
 	dailyLows			DWORD	DAYS_MEASURED DUP(?)
 	dailyLowsTitle		BYTE	"Low temperature reading for each day:",13,10,0
-	highTempAverage		DWORD	?
-	lowTempAverage		DWORD	?
+	averageHigh			DWORD	?
+	averageHighString	BYTE	"The average high temperature (truncated) was: "
+	averageLow			DWORD	?
+	averageLowString	BYTE	"The average low temperature (truncated) was: "
 
 .code
 main PROC
 
 	CALL Randomize ; initialize the random seed for random number generation
 
+	; display greeting
 	PUSH	OFFSET intro1
 	PUSH	OFFSET intro2
 	CALL	printGreeting
@@ -54,8 +57,12 @@ main PROC
 	PUSH	OFFSET dailyLows
 	CALL	findDailyLows
 
-	; find high temps average, store in a variable
-	; find low temps average, store in a variable
+	; find high and low temps average, store them in memory
+	PUSH	OFFSET dailyHighs
+	PUSH	OFFSET dailyLows
+	PUSH	OFFSET averageHigh
+	PUSH	OFFSET averageLow
+	CALL	calcAverageLowHighTemps
 
 	; Display the generated temperatures to the console window
 	PUSH	OFFSET tempArray
@@ -79,7 +86,14 @@ main PROC
 	CALL	displayTempArray
 
 	; display average high temp
+	PUSH	OFFSET averageHighString
+	PUSH	[averageHigh]
+	CALL	displayTempWithString
+
 	; display average low temp
+	PUSH	OFFSET averageLowString
+	PUSH	[averageLow]
+	CALL	displayTempWithString
 
 	Invoke ExitProcess,0	; exit to operating system
 main ENDP
@@ -162,6 +176,7 @@ findDailyHighs PROC
 	PUSH	ECX
 	PUSH	EDX
 	PUSH	ESI
+
 	; ---------------------------------------------------------------------------------
 	; Nested for loop. The outer for loop traverses across all the days, while the inner
 	; for loop traverses across temperatures within a single day. ESI holds the current
@@ -189,6 +204,7 @@ findDailyHighs PROC
 		ADD		EDX, 4						; move forward so we can modify next value in dailyHighs
 		POP		ECX
 		LOOP	_FindAllHighs
+
 	POP		ESI
 	POP		EDX
 	POP		ECX
@@ -218,6 +234,7 @@ findDailyLows PROC
 	PUSH	ECX
 	PUSH	EDX
 	PUSH	ESI
+
 	; ---------------------------------------------------------------------------------
 	; Nested for loop. The outer for loop traverses across all the days, while the inner
 	; for loop traverses across temperatures within a single day. ESI holds the current
@@ -245,6 +262,7 @@ findDailyLows PROC
 		ADD		EDX, 4						; move forward so we can modify next value in dailyLows
 		POP		ECX
 		LOOP	_FindAllLows
+
 	POP		ESI
 	POP		EDX
 	POP		ECX
@@ -255,17 +273,59 @@ findDailyLows PROC
 findDailyLows ENDP
 
 ; ---------------------------------------------------------------------------------
-; Name: 
-; Description: 
-; Preconditions: 
-; Postconditions: 
-; Receives:  
-;	[EBP + ] = 
-;	[EBP + ] = 
-; Returns: 
+; Name: calcAverageLowHighTemps
+; Description: Finds the truncated average of each day of temperatures.
+; Preconditions: fully populated array of temperatures for all the days
+; Postconditions: None
+; Receives:
+;	[EBP + 20] = OFFSET dailyHighs (input)
+;	[EBP + 16] = OFFSET dailyLows (input)
+;	[EBP + 12] = OFFSET averageHigh (output)
+;	[EBP + 8] = OFFSET averageLow(output)
+; Returns: populated averageHigh and averageLow
 ; ---------------------------------------------------------------------------------
 calcAverageLowHighTemps PROC
-	RET
+	PUSH	EBP
+	MOV		EBP, ESP
+	PUSH	EAX
+	PUSH	EBX
+	PUSH	ECX
+	PUSH	EDX
+
+	; First calculate average for high temps
+	MOV		EAX, 0					; initialize EAX to hold the sum of the array.
+	MOV		EBX, [EBP + 20]			; load pointer to first value of the dailyHighs array into EBX
+	MOV		ECX, DAYS_MEASURED
+	_SumHighTemps:
+		ADD		EAX, [EBX]			; add the vaue of the current array value onto EAX
+		ADD		EBX, 4
+		LOOP	_SumHighTemps
+	MOV		EDX, 0					; clear out EDX so that 64 bit division with EDX:EAX does not get screwed up
+	MOV		ECX, DAYS_MEASURED		; now finished looping with ECX, so we will use it as the divisor for average calculation
+	DIV		ECX
+	MOV		EBX, [EBP + 12]			; no longer need EBX, use it to store pointer to output parameter averageHigh
+	MOV		[EBX], EAX
+
+	; Next calculate and store average for low temps
+	MOV		EAX, 0					; initialize EAX to hold the sum of the array.
+	MOV		EBX, [EBP + 16]			; load pointer to first value of the dailyLows array into EBX
+	MOV		ECX, DAYS_MEASURED
+	_SumLowTemps:
+		ADD		EAX, [EBX]			; add the vaue of the current array value onto EAX
+		ADD		EBX, 4
+		LOOP	_SumLowTemps
+	MOV		EDX, 0					; clear out EDX so that 64 bit division with EDX:EAX does not get screwed up
+	MOV		ECX, DAYS_MEASURED		; now finished looping with ECX, so we will use it as the divisor for average calculation
+	DIV		ECX
+	MOV		EBX, [EBP + 8]			; no longer need EBX, use it to store pointer to output parameter averageLow
+	MOV		[EBX], EAX
+	
+	POP		EDX
+	POP		ECX
+	POP		EBX
+	POP		EAX
+	POP		EBP
+	RET		16						; dereference all 4 parameters
 calcAverageLowHighTemps ENDP
 
 ; ---------------------------------------------------------------------------------
@@ -316,24 +376,31 @@ displayTempArray PROC
 displayTempArray ENDP
 
 ; ---------------------------------------------------------------------------------
-; Name: 
-; Description: 
-; Preconditions: 
-; Postconditions: 
+; Name: displayTempWithString
+; Description: Displays a string and its accompanying temperature value.
+; Preconditions: string and value must be calculated and stored
+; Postconditions: None
 ; Receives:  
-;	[EBP + ] = 
-;	[EBP + ] = 
-; Returns: 
+;	[EBP + 12] = OFFSET someTitle
+;	[EBP + 8] = someValue
+; Returns: None
 ; ---------------------------------------------------------------------------------
-displayTempwithString PROC
-	RET
-displayTempwithString ENDP
+displayTempWithString PROC
+	PUSH	EBP
+	MOV		EBP, ESP
+	PUSH	EDX
+
+	CALL	CrLf
+	MOV		EDX, [EBP + 12]
+	CALL	WriteString
+	MOV		EAX, [EBP + 8]
+	CALL	WriteDec
+	CALL	CrLf
+
+	POP		EDX
+	POP		EBP
+	RET		8			; dereference two parameters
+displayTempWithString ENDP
 
 END main
-
-
-;	[EBP + 12] = OFFSET greeting
-;	[EBP + 8] = OFFSET description
-;	[EBP + 4] = return address
-;	[EBP] = old EBP
 
